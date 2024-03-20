@@ -40,25 +40,21 @@ func main() {
 
 // Run the Groth16 prover.
 func runProver(inDir string, outProof string, outContract string, profileCircuit bool, dummySetup bool) {
-	// Read the circuit data and proof from the input dir.
+	// Build the circuit.
+	r1cs := buildCircuit(inDir, profileCircuit)
+
+	// Generate the proof.
+	generateProof(inDir, dummySetup, outProof, outContract, r1cs)
+}
+
+// Build the input circuit.
+func buildCircuit(inDir string, profileCircuit bool) constraint.ConstraintSystem {
+	// Read the circuit data and wrapped proof from the input dir.
 	commonCircuitData := types.ReadCommonCircuitData(inDir + "/common_circuit_data.json")
 	proofWithPis := variables.DeserializeProofWithPublicInputs(types.ReadProofWithPublicInputs(inDir + "/proof_with_public_inputs.json"))
 	verifierOnlyCircuitData := variables.DeserializeVerifierOnlyCircuitData(types.ReadVerifierOnlyCircuitData(inDir + "/verifier_only_circuit_data.json"))
 
-	// Copy for proof generation.
-	proofWithPisCopy := proofWithPis
-	verifierOnlyCircuitDataCopy := verifierOnlyCircuitData
-
-	// Build the circuit.
-	// TODO: load the circuit from previous serialization.
-	r1cs := buildCircuit(profileCircuit, commonCircuitData, proofWithPis, verifierOnlyCircuitData)
-
-	// Generate the proof.
-	generateProof(dummySetup, outProof, outContract, proofWithPisCopy, verifierOnlyCircuitDataCopy, r1cs)
-}
-
-// Build the input circuit.
-func buildCircuit(profileCircuit bool, commonCircuitData types.CommonCircuitData, proofWithPis variables.ProofWithPublicInputs, verifierOnlyCircuitData variables.VerifierOnlyCircuitData) constraint.ConstraintSystem {
+	// Create the verifier circuit.
 	circuit := verifier.ExampleVerifierCircuit{
 		Proof:                   proofWithPis.Proof,
 		PublicInputs:            proofWithPis.PublicInputs,
@@ -96,7 +92,12 @@ func buildCircuit(profileCircuit bool, commonCircuitData types.CommonCircuitData
 }
 
 // Generate the Groth16 proof.
-func generateProof(dummySetup bool, outProof string, outContract string, proofWithPis variables.ProofWithPublicInputs, verifierOnlyCircuitData variables.VerifierOnlyCircuitData, r1cs constraint.ConstraintSystem) {
+func generateProof(inDir string, dummySetup bool, outProof string, outContract string, r1cs constraint.ConstraintSystem) {
+	// Read the wrapped proof from the input dir.
+	// TODO: these data cannot be copied.
+	proofWithPis := variables.DeserializeProofWithPublicInputs(types.ReadProofWithPublicInputs(inDir + "/proof_with_public_inputs.json"))
+	verifierOnlyCircuitData := variables.DeserializeVerifierOnlyCircuitData(types.ReadVerifierOnlyCircuitData(inDir + "/verifier_only_circuit_data.json"))
+
 	var pk groth16.ProvingKey
 	var vk groth16.VerifyingKey
 	var err error
