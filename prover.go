@@ -45,12 +45,16 @@ func runProver(inDir string, outProof string, outContract string, profileCircuit
 	proofWithPis := variables.DeserializeProofWithPublicInputs(types.ReadProofWithPublicInputs(inDir + "/proof_with_public_inputs.json"))
 	verifierOnlyCircuitData := variables.DeserializeVerifierOnlyCircuitData(types.ReadVerifierOnlyCircuitData(inDir + "/verifier_only_circuit_data.json"))
 
+	// Copy for proof generation.
+	proofWithPisCopy := proofWithPis
+	verifierOnlyCircuitDataCopy := verifierOnlyCircuitData
+
 	// Build the circuit.
 	// TODO: load the circuit from previous serialization.
 	r1cs := buildCircuit(profileCircuit, commonCircuitData, proofWithPis, verifierOnlyCircuitData)
 
 	// Generate the proof.
-	generateProof(dummySetup, outProof, outContract, proofWithPis, verifierOnlyCircuitData, r1cs)
+	generateProof(dummySetup, outProof, outContract, proofWithPisCopy, verifierOnlyCircuitDataCopy, r1cs)
 }
 
 // Build the input circuit.
@@ -121,6 +125,10 @@ func generateProof(dummySetup bool, outProof string, outContract string, proofWi
 		// Output the Solidity contract.
 		fSolidity, _ := os.Create(outContract)
 		err = vk.ExportSolidity(fSolidity)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 	}
 
 	fmt.Println("Generating witness", time.Now())
