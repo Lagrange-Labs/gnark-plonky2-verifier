@@ -3,6 +3,9 @@
 package main
 
 import (
+	"bytes"
+	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -10,6 +13,7 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
+	"github.com/consensys/gnark/backend/witness"
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
@@ -18,6 +22,12 @@ import (
 	"github.com/succinctlabs/gnark-plonky2-verifier/variables"
 	"github.com/succinctlabs/gnark-plonky2-verifier/verifier"
 )
+
+// Groth16 proof data
+type Groth16Proof struct {
+	Proof  []string `json:"proof"`
+	Inputs []string `json:"inputs"`
+}
 
 // Main entry point
 func main() {
@@ -44,10 +54,13 @@ func runProver(inDir string, outProof string, outContract string, profileCircuit
 	r1cs := buildCircuit(inDir, profileCircuit)
 
 	// Generate the proof.
-	generateProof(inDir, dummySetup, outProof, outContract, r1cs)
+	proof, witness := generateProof(inDir, dummySetup, outContract, r1cs)
+
+	// Save the proof to a file.
+	writeProof(outProof, proof, witness)
 }
 
-// Build the input circuit.
+// Build the input circuit, and return an instance of constraint system.
 func buildCircuit(inDir string, profileCircuit bool) constraint.ConstraintSystem {
 	// Read the circuit data and wrapped proof from the input dir.
 	commonCircuitData := types.ReadCommonCircuitData(inDir + "/common_circuit_data.json")
@@ -91,8 +104,8 @@ func buildCircuit(inDir string, profileCircuit bool) constraint.ConstraintSystem
 	return r1cs
 }
 
-// Generate the Groth16 proof.
-func generateProof(inDir string, dummySetup bool, outProof string, outContract string, r1cs constraint.ConstraintSystem) {
+// Generate the Groth16 proof, and return the proof and witness.
+func generateProof(inDir string, dummySetup bool, outContract string, r1cs constraint.ConstraintSystem) (groth16.Proof, witness.Witness) {
 	// Read the wrapped proof from the input dir.
 	// TODO: these data cannot be copied.
 	proofWithPis := variables.DeserializeProofWithPublicInputs(types.ReadProofWithPublicInputs(inDir + "/proof_with_public_inputs.json"))
@@ -142,8 +155,50 @@ func generateProof(inDir string, dummySetup bool, outProof string, outContract s
 		os.Exit(1)
 	}
 
-	// Output the Groth16 proof.
-	fProof, _ := os.Create(outProof)
-	proof.WriteTo(fProof)
-	fProof.Close()
+	return proof, witness
+}
+
+// Save the proof to a file.
+func writeProof(outProof string, proof groth16.Proof, witness witness.Witness) {
+	// Both proof and witness will be encoded as U256 (32-bytes).
+	const fpSize = 4 * 8
+
+	// Format the proof as 8-U256.
+	buf := new(bytes.Buffer)
+	proof.WriteRawTo(buf)
+	proofBytes := buf.Bytes()
+	proofs := make([]string, 8)
+	for i := 0; i < 8; i++ {
+		proofs[i] = "0x" + hex.EncodeToString(proofBytes[i*fpSize:(i+1)*fpSize])
+	}
+
+	// Format the public inputs.
+	publicWitness, _ := witness.Public()
+	publicWitnessBytes, _ := publicWitness.MarshalBinary()
+	// We cut off the first 12 bytes because they encode length information.
+	publicWitnessBytes = publicWitnessBytes[12:]
+	nbInputs := len(publicWitnessBytes) / fpSize
+	inputs := make([]string, nbInputs)
+	for i := 0; i < nbInputs; i++ {
+		inputs[i] = "0x" + hex.EncodeToString(publicWitnessBytes[i*fpSize:(i+1)*fpSize])
+	}
+
+	// Create the output proof data.
+	proofData := Groth16Proof{
+		Proof:  proofs,
+		Inputs: inputs,
+	}
+
+	// Format to JSON.
+	jsonData, err := json.MarshalIndent(proofData, "", "  ")
+	if err != nil {
+		fmt.Println("Error marshalling to JSON:", err)
+		return
+	}
+
+	// Write the proof to a file.
+	err = os.WriteFile(outProof, jsonData, 0644)
+	if err != nil {
+		fmt.Println("Error writing to file:", err)
+	}
 }
