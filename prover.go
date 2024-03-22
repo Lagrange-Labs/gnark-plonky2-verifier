@@ -3,15 +3,16 @@
 package main
 
 import (
-	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math/big"
 	"os"
 	"time"
 
 	"github.com/consensys/gnark-crypto/ecc"
+	fr_bn254 "github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/backend/witness"
 	"github.com/consensys/gnark/constraint"
@@ -25,8 +26,10 @@ import (
 
 // Groth16 proof data
 type Groth16Proof struct {
-	Proof  []string `json:"proof"`
-	Inputs []string `json:"inputs"`
+	Proof         []string `json:"proof"`
+	Inputs        []string `json:"inputs"`
+	Commitments   []string `json:"commitments"`
+	CommitmentPok []string `json:"commitment_pok"`
 }
 
 // Main entry point
@@ -54,10 +57,10 @@ func runProver(inDir string, outProof string, outContract string, profileCircuit
 	r1cs := buildCircuit(inDir, profileCircuit)
 
 	// Generate the proof.
-	proof, witness := generateProof(inDir, dummySetup, outContract, r1cs)
+	proof, validPublicWitness, vk := generateProof(inDir, dummySetup, outContract, r1cs)
 
 	// Save the proof to a file.
-	writeProof(outProof, proof, witness)
+	writeProof(outProof, proof, validPublicWitness, vk)
 }
 
 // Build the input circuit, and return an instance of constraint system.
@@ -105,7 +108,7 @@ func buildCircuit(inDir string, profileCircuit bool) constraint.ConstraintSystem
 }
 
 // Generate the Groth16 proof, and return the proof and witness.
-func generateProof(inDir string, dummySetup bool, outContract string, r1cs constraint.ConstraintSystem) (groth16.Proof, witness.Witness) {
+func generateProof(inDir string, dummySetup bool, outContract string, r1cs constraint.ConstraintSystem) (groth16.Proof, witness.Witness, groth16.VerifyingKey) {
 	// Read the wrapped proof from the input dir.
 	// TODO: these data cannot be copied.
 	proofWithPis := variables.DeserializeProofWithPublicInputs(types.ReadProofWithPublicInputs(inDir + "/proof_with_public_inputs.json"))
@@ -155,38 +158,84 @@ func generateProof(inDir string, dummySetup bool, outContract string, r1cs const
 		os.Exit(1)
 	}
 
-	return proof, witness
+	validPublicWitness, _ := witness.Public()
+
+	return proof, validPublicWitness, vk
 }
 
 // Save the proof to a file.
-func writeProof(outProof string, proof groth16.Proof, witness witness.Witness) {
-	// Both proof and witness will be encoded as U256 (32-bytes).
+func writeProof(outProof string, proof any, validPublicWitness witness.Witness, vk groth16.VerifyingKey) {
+	// len(vk.K) - 1 == len(publicWitness) + len(commitments)
+	nbPublicInputs := len(validPublicWitness.Vector().(fr_bn254.Vector))
+	numOfCommitments := vk.NbPublicWitness() - nbPublicInputs
+
+	// Convert the proof to a string.
+	_proof, ok := proof.(interface{ MarshalSolidity() []byte })
+	if !ok {
+		fmt.Println("Error marshalling proof")
+		return
+	}
+	proofBytes := _proof.MarshalSolidity()
+
+	// Convert the public witness to a string.
+	bPublicWitness, err := validPublicWitness.MarshalBinary()
+	if err != nil {
+		fmt.Println("Error marshalling public witness")
+		return
+	}
+	// that's quite dirty...
+	// first 4 bytes -> nbPublic
+	// next 4 bytes -> nbSecret
+	// next 4 bytes -> nb elements in the vector (== nbPublic + nbSecret)
+	inputBytes := bPublicWitness[12:]
+
 	const fpSize = 4 * 8
-
-	// Format the proof as 8-U256.
-	buf := new(bytes.Buffer)
-	proof.WriteRawTo(buf)
-	proofBytes := buf.Bytes()
-	proofs := make([]string, 8)
-	for i := 0; i < 8; i++ {
-		proofs[i] = "0x" + hex.EncodeToString(proofBytes[i*fpSize:(i+1)*fpSize])
+	if len(inputBytes)%fpSize != 0 {
+		panic("inputBytes mod 32 !=0")
 	}
 
-	// Format the public inputs.
-	publicWitness, _ := witness.Public()
-	publicWitnessBytes, _ := publicWitness.MarshalBinary()
-	// We cut off the first 12 bytes because they encode length information.
-	publicWitnessBytes = publicWitnessBytes[12:]
-	nbInputs := len(publicWitnessBytes) / fpSize
-	inputs := make([]string, nbInputs)
+	// Convert the public inputs.
+	nbInputs := len(inputBytes) / fpSize
+	if nbInputs != nbPublicInputs {
+		panic("nbInputs != nbPublicInputs")
+	}
+	inputs := make([]string, nbPublicInputs)
 	for i := 0; i < nbInputs; i++ {
-		inputs[i] = "0x" + hex.EncodeToString(publicWitnessBytes[i*fpSize:(i+1)*fpSize])
+		inputs[i] = "0x" + hex.EncodeToString(inputBytes[fpSize*i:fpSize*(i+1)])
 	}
+
+	// Solidity contract inputs
+	proofs := make([]string, 8)
+	// proof.Ar, proof.Bs, proof.Krs
+	for i := 0; i < 8; i++ {
+		proofs[i] = "0x" + hex.EncodeToString(proofBytes[fpSize*i:fpSize*(i+1)])
+	}
+
+	c := new(big.Int).SetBytes(proofBytes[fpSize*8 : fpSize*8+4])
+	commitmentCount := int(c.Int64())
+
+	if commitmentCount != numOfCommitments {
+		panic("commitmentCount != .NbCommitments")
+	}
+
+	commitments := make([]string, 2*commitmentCount)
+	commitmentPok := make([]string, 2)
+
+	// commitments
+	for i := 0; i < 2*commitmentCount; i++ {
+		commitments[i] = "0x" + hex.EncodeToString(proofBytes[fpSize*8+4+i*fpSize:fpSize*8+4+(i+1)*fpSize])
+	}
+
+	// commitmentPok
+	commitmentPok[0] = "0x" + hex.EncodeToString(proofBytes[fpSize*8+4+2*commitmentCount*fpSize:fpSize*8+4+2*commitmentCount*fpSize+fpSize])
+	commitmentPok[1] = "0x" + hex.EncodeToString(proofBytes[fpSize*8+4+2*commitmentCount*fpSize+fpSize:fpSize*8+4+2*commitmentCount*fpSize+2*fpSize])
 
 	// Create the output proof data.
 	proofData := Groth16Proof{
-		Proof:  proofs,
-		Inputs: inputs,
+		Proof:         proofs,
+		Inputs:        inputs,
+		Commitments:   commitments,
+		CommitmentPok: commitmentPok,
 	}
 
 	// Format to JSON.
