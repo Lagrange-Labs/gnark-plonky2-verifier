@@ -17,7 +17,6 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/frontend/cs/scs"
 	"github.com/consensys/gnark/profile"
-	"github.com/consensys/gnark/test"
 	"github.com/succinctlabs/gnark-plonky2-verifier/trusted_setup"
 	"github.com/succinctlabs/gnark-plonky2-verifier/types"
 	"github.com/succinctlabs/gnark-plonky2-verifier/variables"
@@ -102,7 +101,8 @@ func plonkProof(r1cs constraint.ConstraintSystem, circuitName string, dummy bool
 	if dummy {
 		fmt.Println("Using test setup")
 
-		srs, err = test.NewKZGSRS(r1cs)
+		// TODO: fix to use `unsafekzg.NewSRS`
+		// srs, err = test.NewKZGSRS(r1cs)
 
 		if err != nil {
 			panic(err)
@@ -127,8 +127,8 @@ func plonkProof(r1cs constraint.ConstraintSystem, circuitName string, dummy bool
 		}
 	}
 
-	pk, vk, err = plonk.Setup(r1cs, srs)
-
+	// TODO: fix the last argument to `srsLagrange`.
+	pk, vk, err = plonk.Setup(r1cs, srs, srs)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -300,7 +300,6 @@ func groth16Proof(r1cs constraint.ConstraintSystem, circuitName string, dummy bo
 
 	println("c[0] is ", c[0].String())
 	println("c[1] is ", c[1].String())
-
 }
 
 func main() {
