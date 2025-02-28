@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/succinctlabs/gnark-plonky2-verifier/plonk/gates"
+	"github.com/lagrange-labs/gnark-plonky2-verifier/plonk/gates"
 )
 
 type FriConfig struct {

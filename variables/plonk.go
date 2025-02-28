@@ -1,6 +1,6 @@
 package variables
 
-import gl "github.com/succinctlabs/gnark-plonky2-verifier/goldilocks"
+import gl "github.com/lagrange-labs/gnark-plonky2-verifier/goldilocks"
 
 type OpeningSet struct {
 	Constants       []gl.QuadraticExtensionVariable // Length = CommonCircuitData.Constants

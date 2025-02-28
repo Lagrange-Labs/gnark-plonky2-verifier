@@ -2,11 +2,11 @@ package plonk
 
 import (
 	"github.com/consensys/gnark/frontend"
-	gl "github.com/succinctlabs/gnark-plonky2-verifier/goldilocks"
-	"github.com/succinctlabs/gnark-plonky2-verifier/plonk/gates"
-	"github.com/succinctlabs/gnark-plonky2-verifier/poseidon"
-	"github.com/succinctlabs/gnark-plonky2-verifier/types"
-	"github.com/succinctlabs/gnark-plonky2-verifier/variables"
+	gl "github.com/lagrange-labs/gnark-plonky2-verifier/goldilocks"
+	"github.com/lagrange-labs/gnark-plonky2-verifier/plonk/gates"
+	"github.com/lagrange-labs/gnark-plonky2-verifier/poseidon"
+	"github.com/lagrange-labs/gnark-plonky2-verifier/types"
+	"github.com/lagrange-labs/gnark-plonky2-verifier/variables"
 )
 
 type PlonkChip struct {
