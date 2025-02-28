@@ -17,7 +17,7 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/frontend/cs/scs"
 	"github.com/consensys/gnark/profile"
-	"github.com/consensys/gnark/test"
+	"github.com/consensys/gnark/test/unsafekzg"
 	"github.com/succinctlabs/gnark-plonky2-verifier/trusted_setup"
 	"github.com/succinctlabs/gnark-plonky2-verifier/types"
 	"github.com/succinctlabs/gnark-plonky2-verifier/variables"
@@ -81,6 +81,7 @@ func plonkProof(r1cs constraint.ConstraintSystem, circuitName string, dummy bool
 	var pk plonk.ProvingKey
 	var vk plonk.VerifyingKey
 	var srs kzg.SRS = kzg.NewSRS(ecc.BN254)
+	var lagrangeSrs kzg.SRS
 	var err error
 
 	proofWithPis := variables.DeserializeProofWithPublicInputs(types.ReadProofWithPublicInputs("testdata/" + circuitName + "/proof_with_public_inputs.json"))
@@ -102,7 +103,7 @@ func plonkProof(r1cs constraint.ConstraintSystem, circuitName string, dummy bool
 	if dummy {
 		fmt.Println("Using test setup")
 
-		srs, err = test.NewKZGSRS(r1cs)
+		srs, lagrangeSrs, err = unsafekzg.NewSRS(r1cs)
 
 		if err != nil {
 			panic(err)
@@ -117,6 +118,9 @@ func plonkProof(r1cs constraint.ConstraintSystem, circuitName string, dummy bool
 		}
 
 		fSRS, err := os.Open(fileName)
+		if err != nil {
+			panic(err)
+		}
 
 		_, err = srs.ReadFrom(fSRS)
 
@@ -127,7 +131,7 @@ func plonkProof(r1cs constraint.ConstraintSystem, circuitName string, dummy bool
 		}
 	}
 
-	pk, vk, err = plonk.Setup(r1cs, srs)
+	pk, vk, err = plonk.Setup(r1cs, srs, lagrangeSrs)
 
 	if err != nil {
 		fmt.Println(err)
@@ -147,6 +151,10 @@ func plonkProof(r1cs constraint.ConstraintSystem, circuitName string, dummy bool
 
 		fSolidity, _ := os.Create("proof.sol")
 		err = vk.ExportSolidity(fSolidity)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 	}
 
 	fmt.Println("Generating witness", time.Now())
@@ -182,7 +190,6 @@ func plonkProof(r1cs constraint.ConstraintSystem, circuitName string, dummy bool
 		os.Exit(1)
 	}
 
-	const fpSize = 4 * 8
 	var buf bytes.Buffer
 	proof.WriteRawTo(&buf)
 	proofBytes := buf.Bytes()
@@ -234,6 +241,10 @@ func groth16Proof(r1cs constraint.ConstraintSystem, circuitName string, dummy bo
 
 		fSolidity, _ := os.Create("proof.sol")
 		err = vk.ExportSolidity(fSolidity)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 	}
 
 	fmt.Println("Generating witness", time.Now())
